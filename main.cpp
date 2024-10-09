@@ -1,83 +1,126 @@
+#include <windows.h>
+#include <commdlg.h>
 #include <iostream>
+#include <fstream>
 #include <string>
-#include <cryptlib.h>
-#include <aes.h>
-#include <modes.h>
-#include <filters.h>
-#include <osrng.h>
-#include <hex.h>
 
-using namespace CryptoPP;
+using namespace std;
 
-void generateKey(byte key[AES::DEFAULT_KEYLENGTH]) {
-    AutoSeededRandomPool prng;
-    prng.GenerateBlock(key, AES::DEFAULT_KEYLENGTH);
-    std::cout << "Schlüssel generiert: ";
-    StringSource(key, AES::DEFAULT_KEYLENGTH, true,
-        new HexEncoder(new FileSink(std::cout))); 
-    std::cout << std::endl;
+string xorEncryptDecrypt(const string& input, const string& key) {
+    string output = input;
+    for (size_t i = 0; i < input.size(); ++i) {
+        output[i] = input[i] ^ key[i % key.size()];
+    }
+    return output;
 }
 
-std::string encrypt(const std::string& plaintext, const byte key[AES::DEFAULT_KEYLENGTH]) {
-    std::string ciphertext;
-    try {
-        
-        byte iv[AES::BLOCKSIZE];
-        AutoSeededRandomPool prng;
-        prng.GenerateBlock(iv, sizeof(iv));
-
-        
-        CFB_Mode<AES>::Encryption encryption(key, AES::DEFAULT_KEYLENGTH, iv);
-        StringSource(plaintext, true,
-            new StreamTransformationFilter(encryption,
-                new StringSink(ciphertext)
-            )
-        );
-
-        
-        ciphertext.insert(0, (char*)iv, AES::BLOCKSIZE);
+string readFile(const string& filename) {
+    ifstream file(filename, ios::in | ios::binary);
+    if (!file) {
+        MessageBox(NULL, "Could not open the file.", "Error", MB_OK | MB_ICONERROR);
+        return "";
     }
-    catch (const Exception& e) {
-        std::cerr << "Fehler bei der Verschlüsselung: " << e.what() << std::endl;
-    }
-    return ciphertext;
+    string content((istreambuf_iterator<char>(file)), istreambuf_iterator<char>());
+    file.close();
+    return content;
 }
 
-std::string decrypt(const std::string& ciphertext, const byte key[AES::DEFAULT_KEYLENGTH]) {
-    std::string decryptedtext;
-    try {
-        
-        byte iv[AES::BLOCKSIZE];
-        memcpy(iv, ciphertext.data(), AES::BLOCKSIZE);
-        std::string actualCiphertext = ciphertext.substr(AES::BLOCKSIZE);
-
-        
-        CFB_Mode<AES>::Decryption decryption(key, AES::DEFAULT_KEYLENGTH, iv);
-        StringSource(actualCiphertext, true,
-            new StreamTransformationFilter(decryption,
-                new StringSink(decryptedtext)
-            )
-        );
+void writeFile(const string& filename, const string& content) {
+    ofstream file(filename, ios::out | ios::binary);
+    if (!file) {
+        MessageBox(NULL, "Could not open the file.", "Error", MB_OK | MB_ICONERROR);
+        return;
     }
-    catch (const Exception& e) {
-        std::cerr << "Fehler bei der Entschlüsselung: " << e.what() << std::endl;
-    }
-    return decryptedtext;
+    file << content;
+    file.close();
 }
 
-int main() {
-    byte key[AES::DEFAULT_KEYLENGTH];
-    generateKey(key);
+string openFileDialog() {
+    OPENFILENAME ofn;
+    char szFile[260];
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFile = szFile;
+    ofn.lpstrFile[0] = '\0';
+    ofn.nMaxFile = sizeof(szFile);
+    ofn.lpstrFilter = "All Files\0*.*\0Text Files\0*.TXT\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 
-    std::string plaintext = "Das ist eine geheime Nachricht.";
-    std::string encrypted = encrypt(plaintext, key);
-    std::cout << "Verschlüsselte Nachricht: ";
-    StringSource(encrypted, true,
-        new HexEncoder(new FileSink(std::cout)));
-    std::cout << std::endl;
+    if (GetOpenFileName(&ofn)) {
+        return string(ofn.lpstrFile);
+    }
+    return "";
+}
 
-    std::string decrypted = decrypt(encrypted, key);
-    std::cout << "Entschlüsselte Nachricht: " << decrypted << std::endl;
+string saveFileDialog() {
+    OPENFILENAME ofn;
+    char szFile[260];
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFile = szFile;
+    ofn.lpstrFile[0] = '\0';
+    ofn.nMaxFile = sizeof(szFile);
+    ofn.lpstrFilter = "All Files\0*.*\0Text Files\0*.TXT\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    ofn.Flags = OFN_OVERWRITEPROMPT;
+
+    if (GetSaveFileName(&ofn)) {
+        return string(ofn.lpstrFile);
+    }
+    return "";
+}
+
+string getKeyFromUser() {
+    string key;
+    cout << "Enter the decryption key: ";
+    getline(cin, key);
+    return key;
+}
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    string key = "mysecretkey123";
+    string filename;
+    int choice = MessageBox(NULL, "Choose Yes to Encrypt or No to Decrypt.", "Select Operation", MB_YESNO | MB_ICONQUESTION);
+
+    if (choice == IDYES) {
+        filename = openFileDialog();
+        if (!filename.empty()) {
+            string fileContent = readFile(filename);
+            if (!fileContent.empty()) {
+                string encryptedContent = xorEncryptDecrypt(fileContent, key);
+                string encryptedFileName = saveFileDialog();
+                if (!encryptedFileName.empty()) {
+                    writeFile(encryptedFileName, encryptedContent);
+                    MessageBox(NULL, "File encrypted successfully.", "Success", MB_OK | MB_ICONINFORMATION);
+                }
+            }
+        }
+    } else if (choice == IDNO) {
+        filename = openFileDialog();
+        if (!filename.empty()) {
+            string encryptedContent = readFile(filename);
+            if (!encryptedContent.empty()) {
+                string userKey = getKeyFromUser();
+                if (!userKey.empty()) {
+                    string decryptedContent = xorEncryptDecrypt(encryptedContent, userKey);
+                    string decryptedFileName = saveFileDialog();
+                    if (!decryptedFileName.empty()) {
+                        writeFile(decryptedFileName, decryptedContent);
+                        MessageBox(NULL, "File decrypted successfully.", "Success", MB_OK | MB_ICONINFORMATION);
+                    }
+                }
+            }
+        }
+    }
 
     return 0;
 }
